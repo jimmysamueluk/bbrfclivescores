@@ -204,7 +204,6 @@ export async function sendTestNotification(): Promise<void> {
       body: 'Push notifications are working! You\'ll receive score updates here.',
       icon: '/icon-192x192.png',
       badge: '/badge-72x72.png',
-      vibrate: [200, 100, 200],
-    });
+    } as NotificationOptions);
   }
 }
