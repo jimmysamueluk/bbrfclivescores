@@ -2,7 +2,7 @@
   "name": "Bannockburn RFC Live Scores",
   "short_name": "RFC Scores",
   "description": "Live rugby match scores and updates for Bannockburn RFC",
-  "start_url": "/protected/live-scores",
+  "start_url": "/ios-notification-test.html",
   "display": "standalone",
   "background_color": "#800020",
   "theme_color": "#800020",
