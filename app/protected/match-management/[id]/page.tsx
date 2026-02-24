@@ -146,6 +146,7 @@ export default function MatchManagementPage() {
     }
 
     const lastScore = scoreUpdates[scoreUpdates.length - 1];
+    if (!game) return;
     const confirmed = window.confirm(
       `Undo ${lastScore.scoreType.toUpperCase()} (${lastScore.points} pts) for ${
         lastScore.team === "home" ? game.homeTeamName : game.awayTeamName
