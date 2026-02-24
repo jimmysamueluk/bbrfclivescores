@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { LogOut } from "lucide-react";
+import { LogOut, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function ProtectedLayout({
@@ -57,6 +57,14 @@ export default function ProtectedLayout({
                 </p>
                 <p className="text-white/80 text-xs capitalize">{user.role}</p>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push("/protected/settings/notifications")}
+                className="text-white hover:bg-white/20 min-w-[40px] h-10"
+              >
+                <Bell className="h-4 w-4" />
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
