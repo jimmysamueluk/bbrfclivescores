@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enable Push Notifications</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #800020;
+            margin-bottom: 20px;
+        }
+        button {
+            background: linear-gradient(135deg, #800020, #a6002a);
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(128, 0, 32, 0.3);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .status {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏉 Enable Push Notifications</h1>
+
+        <button id="enableBtn" onclick="enableNotifications()">
+            Enable Push Notifications
+        </button>
+
+        <button id="testBtn" onclick="sendTestNotification()" disabled>
+            Send Test Notification
+        </button>
+
+        <div class="status" id="status">
+            Ready to enable notifications...
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3001/api';
+        let token = null;
+
+        function log(message, type = 'info') {
+            const status = document.getElementById('status');
+            const className = type === 'success' ? 'success' : (type === 'error' ? 'error' : '');
+            const timestamp = new Date().toLocaleTimeString();
+            status.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            status.scrollTop = status.scrollHeight;
+        }
+
+        async function login() {
+            log('🔑 Logging in as player@test.com...');
+            const res = await fetch(`${API_URL}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: 'player@test.com',
+                    password: 'password123'
+                })
+            });
+
+            if (!res.ok) throw new Error('Login failed');
+
+            const data = await res.json();
+            token = data.token;
+            log('✅ Logged in successfully', 'success');
+            return token;
+        }
+
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        async function enableNotifications() {
+            const enableBtn = document.getElementById('enableBtn');
+            const testBtn = document.getElementById('testBtn');
+
+            try {
+                enableBtn.disabled = true;
+
+                // Login
+                await login();
+
+                // Request permission
+                log('🔔 Requesting notification permission...');
+                const permission = await Notification.requestPermission();
+                log(`Permission result: ${permission}`, permission === 'granted' ? 'success' : 'error');
+
+                if (permission !== 'granted') {
+                    throw new Error('Notification permission denied');
+                }
+
+                // Get VAPID key
+                log('🔑 Getting VAPID public key...');
+                const vapidRes = await fetch(`${API_URL}/push-notifications/vapid-public-key`);
+                const vapidData = await vapidRes.json();
+                log('✅ Got VAPID key', 'success');
+
+                // Register Service Worker
+                log('👷 Registering Service Worker...');
+                const registration = await navigator.serviceWorker.register('/sw.js');
+                await navigator.serviceWorker.ready;
+                log('✅ Service Worker registered', 'success');
+
+                // Subscribe to push
+                log('📱 Creating push subscription...');
+                const subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(vapidData.publicKey)
+                });
+                log('✅ Push subscription created', 'success');
+
+                // Save to backend
+                log('💾 Saving subscription to server...');
+                const saveRes = await fetch(`${API_URL}/push-notifications/subscribe`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        subscription: subscription.toJSON(),
+                        gameId: null,
+                        teamId: null
+                    })
+                });
+
+                if (!saveRes.ok) {
+                    const errorText = await saveRes.text();
+                    throw new Error(`Save failed: ${saveRes.status} - ${errorText}`);
+                }
+
+                const saveData = await saveRes.json();
+                log('✅ Subscription saved! ID: ' + saveData.id, 'success');
+                log('');
+                log('🎉 SUCCESS! Push notifications are now enabled!', 'success');
+                log('You can now receive notifications when scores are updated.', 'success');
+
+                testBtn.disabled = false;
+
+            } catch (error) {
+                log('❌ ERROR: ' + error.message, 'error');
+                enableBtn.disabled = false;
+            }
+        }
+
+        async function sendTestNotification() {
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                await registration.showNotification('Bannockburn RFC', {
+                    body: '🏉 Push notifications are working! You will receive score updates.',
+                    icon: '/icon-192x192.png',
+                    badge: '/badge-72x72.png',
+                    vibrate: [200, 100, 200],
+                    tag: 'test-notification'
+                });
+                log('✅ Test notification sent!', 'success');
+            } catch (error) {
+                log('❌ Test notification failed: ' + error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

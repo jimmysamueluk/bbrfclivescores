@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="RFC Test">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icon-192x192.png">
+    <title>iOS Notification Test</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f9f9f9;
+            color: #333;
+        }
+        h1 { font-size: 22px; margin-bottom: 10px; }
+        h2 { font-size: 16px; color: #666; margin-bottom: 20px; font-weight: normal; }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .card h3 { font-size: 14px; color: #800020; margin-bottom: 8px; }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+        .status-item:last-child { border-bottom: none; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge-yes { background: #d4edda; color: #155724; }
+        .badge-no { background: #f8d7da; color: #721c24; }
+        .badge-unknown { background: #fff3cd; color: #856404; }
+        button {
+            background: #800020;
+            color: white;
+            border: none;
+            padding: 16px;
+            font-size: 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            width: 100%;
+            margin: 6px 0;
+            font-weight: 600;
+        }
+        button:active { background: #600018; }
+        button:disabled { background: #ccc; color: #888; }
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px; height: 24px;
+            background: #800020;
+            color: white;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        #log {
+            background: #1a1a2e;
+            color: #00ff88;
+            padding: 16px;
+            border-radius: 12px;
+            font-family: 'SF Mono', Menlo, monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            line-height: 1.6;
+            margin-top: 12px;
+        }
+        .log-error { color: #ff6b6b; }
+        .log-success { color: #00ff88; }
+        .log-info { color: #74b9ff; }
+        .log-warn { color: #ffeaa7; }
+        .instructions {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .instructions strong { color: #800020; }
+    </style>
+</head>
+<body>
+    <h1>iOS Push Notification Test</h1>
+    <h2>Bannockburn RFC</h2>
+
+    <div class="instructions" id="pwa-warning" style="display:none;">
+        <strong>Not running as PWA!</strong><br>
+        On iPhone, you must:<br>
+        1. Tap the <strong>Share</strong> button (box with arrow)<br>
+        2. Tap <strong>"Add to Home Screen"</strong><br>
+        3. Open the app from your Home Screen<br>
+        4. Then come back to this test page
+    </div>
+
+    <div class="card">
+        <h3>Environment Check</h3>
+        <div class="status-item">
+            <span>Running as PWA (standalone)</span>
+            <span id="check-pwa" class="badge badge-unknown">checking...</span>
+        </div>
+        <div class="status-item">
+            <span>Notification API available</span>
+            <span id="check-notif-api" class="badge badge-unknown">checking...</span>
+        </div>
+        <div class="status-item">
+            <span>Service Worker supported</span>
+            <span id="check-sw" class="badge badge-unknown">checking...</span>
+        </div>
+        <div class="status-item">
+            <span>Push Manager supported</span>
+            <span id="check-push" class="badge badge-unknown">checking...</span>
+        </div>
+        <div class="status-item">
+            <span>Current permission</span>
+            <span id="check-permission" class="badge badge-unknown">checking...</span>
+        </div>
+        <div class="status-item">
+            <span>Service Worker status</span>
+            <span id="check-sw-status" class="badge badge-unknown">checking...</span>
+        </div>
+        <div class="status-item">
+            <span>iOS version</span>
+            <span id="check-ios" class="badge badge-unknown">checking...</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3><span class="step-number">1</span>Register Service Worker</h3>
+        <button onclick="registerSW()">Register Service Worker</button>
+    </div>
+
+    <div class="card">
+        <h3><span class="step-number">2</span>Request Permission</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:8px;">Must be done from a tap gesture inside the PWA.</p>
+        <button onclick="requestPerm()">Request Notification Permission</button>
+    </div>
+
+    <div class="card">
+        <h3><span class="step-number">3</span>Send Test Notification</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:8px;">Uses service worker showNotification (iOS-compatible).</p>
+        <button onclick="sendNotification()">Send via Service Worker</button>
+        <button onclick="sendDelayed()" style="background:#2d6a4f;">Send in 5 seconds (close app to test)</button>
+    </div>
+
+    <div id="log">Waiting for actions...</div>
+
+    <script>
+        function log(msg, type = 'info') {
+            const el = document.getElementById('log');
+            const cls = type === 'error' ? 'log-error' : type === 'success' ? 'log-success' : type === 'warn' ? 'log-warn' : 'log-info';
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML += `<div class="${cls}">[${time}] ${msg}</div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function setBadge(id, value, isGood) {
+            const el = document.getElementById(id);
+            el.textContent = value;
+            el.className = 'badge ' + (isGood ? 'badge-yes' : 'badge-no');
+        }
+
+        // Detect iOS version
+        function getIOSVersion() {
+            const match = navigator.userAgent.match(/OS (\d+)_(\d+)/);
+            if (match) return { major: parseInt(match[1]), minor: parseInt(match[2]) };
+            return null;
+        }
+
+        // Check if running as installed PWA
+        function isStandalone() {
+            return window.navigator.standalone === true ||
+                   window.matchMedia('(display-mode: standalone)').matches;
+        }
+
+        // Run environment checks
+        async function runChecks() {
+            const standalone = isStandalone();
+            setBadge('check-pwa', standalone ? 'YES' : 'NO', standalone);
+            if (!standalone) {
+                document.getElementById('pwa-warning').style.display = 'block';
+            }
+
+            const notifAPI = 'Notification' in window;
+            setBadge('check-notif-api', notifAPI ? 'YES' : 'NO', notifAPI);
+
+            const swSupported = 'serviceWorker' in navigator;
+            setBadge('check-sw', swSupported ? 'YES' : 'NO', swSupported);
+
+            const pushSupported = 'PushManager' in window;
+            setBadge('check-push', pushSupported ? 'YES' : 'NO', pushSupported);
+
+            if (notifAPI) {
+                const perm = Notification.permission;
+                setBadge('check-permission', perm, perm === 'granted');
+            } else {
+                setBadge('check-permission', 'N/A', false);
+            }
+
+            // Check SW registration
+            if (swSupported) {
+                try {
+                    const reg = await navigator.serviceWorker.getRegistration('/');
+                    if (reg) {
+                        const state = reg.active ? 'active' : reg.waiting ? 'waiting' : reg.installing ? 'installing' : 'unknown';
+                        setBadge('check-sw-status', state, state === 'active');
+                    } else {
+                        setBadge('check-sw-status', 'not registered', false);
+                    }
+                } catch (e) {
+                    setBadge('check-sw-status', 'error', false);
+                }
+            }
+
+            const ios = getIOSVersion();
+            if (ios) {
+                const supported = ios.major >= 16 && ios.minor >= 4 || ios.major >= 17;
+                setBadge('check-ios', `${ios.major}.${ios.minor}`, supported);
+                if (!supported) {
+                    log('iOS 16.4+ required for push notifications', 'error');
+                }
+            } else {
+                setBadge('check-ios', 'Not iOS', true);
+            }
+
+            log('Environment checks complete', 'info');
+        }
+
+        async function registerSW() {
+            log('Registering service worker...');
+            try {
+                const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+                log('SW registered! Scope: ' + registration.scope, 'success');
+
+                // Wait for it to become active
+                if (registration.installing) {
+                    log('SW installing...', 'info');
+                    registration.installing.addEventListener('statechange', (e) => {
+                        log('SW state: ' + e.target.state, 'info');
+                        if (e.target.state === 'activated') {
+                            log('SW now active!', 'success');
+                            runChecks();
+                        }
+                    });
+                } else if (registration.active) {
+                    log('SW already active', 'success');
+                }
+                runChecks();
+            } catch (error) {
+                log('SW registration failed: ' + error.message, 'error');
+            }
+        }
+
+        async function requestPerm() {
+            log('Requesting notification permission...');
+
+            if (!('Notification' in window)) {
+                log('Notification API not available. Are you in a PWA on iOS 16.4+?', 'error');
+                return;
+            }
+
+            try {
+                const permission = await Notification.requestPermission();
+                log('Permission result: ' + permission, permission === 'granted' ? 'success' : 'error');
+                runChecks();
+
+                if (permission === 'granted') {
+                    log('You can now send test notifications!', 'success');
+                } else if (permission === 'denied') {
+                    log('Permission denied. On iOS: Settings > (this app) > Notifications', 'warn');
+                } else {
+                    log('Permission dismissed. Try again.', 'warn');
+                }
+            } catch (error) {
+                log('Permission request error: ' + error.message, 'error');
+            }
+        }
+
+        async function sendNotification() {
+            log('Attempting to send notification via service worker...');
+
+            if (Notification.permission !== 'granted') {
+                log('Permission not granted! Complete Step 2 first.', 'error');
+                return;
+            }
+
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                log('Got SW registration, calling showNotification...', 'info');
+
+                await registration.showNotification('🏉 Bannockburn RFC', {
+                    body: 'TRY! Home team scores! 15-10',
+                    icon: '/icon-192x192.png',
+                    badge: '/badge-72x72.png',
+                    tag: 'test-' + Date.now(),
+                    vibrate: [200, 100, 200],
+                    data: { url: '/protected/live-scores' },
+                    requireInteraction: false
+                });
+
+                log('showNotification called successfully!', 'success');
+                log('Check your notifications!', 'success');
+            } catch (error) {
+                log('Notification error: ' + error.message, 'error');
+                log('Stack: ' + error.stack, 'error');
+            }
+        }
+
+        async function sendDelayed() {
+            log('Will send notification in 5 seconds...', 'warn');
+            log('Switch away from this app now to test background delivery!', 'warn');
+
+            setTimeout(async () => {
+                try {
+                    const registration = await navigator.serviceWorker.ready;
+                    await registration.showNotification('🏉 Delayed Test', {
+                        body: 'This was sent 5 seconds after you pressed the button',
+                        icon: '/icon-192x192.png',
+                        badge: '/badge-72x72.png',
+                        tag: 'delayed-test-' + Date.now(),
+                        vibrate: [200, 100, 200],
+                        requireInteraction: false
+                    });
+                    log('Delayed notification sent!', 'success');
+                } catch (error) {
+                    log('Delayed notification error: ' + error.message, 'error');
+                }
+            }, 5000);
+        }
+
+        // Run checks on load
+        runChecks();
+    </script>
+</body>
+</html>

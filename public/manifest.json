@@ -1,0 +1,30 @@
+{
+  "name": "Bannockburn RFC Live Scores",
+  "short_name": "RFC Scores",
+  "description": "Live rugby match scores and updates for Bannockburn RFC",
+  "start_url": "/protected/live-scores",
+  "display": "standalone",
+  "background_color": "#800020",
+  "theme_color": "#800020",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/badge-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "badge"
+    }
+  ]
+}
