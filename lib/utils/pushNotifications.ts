@@ -105,7 +105,7 @@ export async function subscribeToPushNotifications(
     );
 
     const publicKey = vapidData.publicKey;
-    const applicationServerKey = urlBase64ToUint8Array(publicKey);
+    const applicationServerKey = urlBase64ToUint8Array(publicKey).buffer as ArrayBuffer;
 
     // Subscribe to push manager
     const subscription = await registration.pushManager.subscribe({
