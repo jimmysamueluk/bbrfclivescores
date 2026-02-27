@@ -24,6 +24,7 @@ export default function LiveScoresPage() {
   const { data: games = [], isLoading } = useQuery({
     queryKey: ["games"],
     queryFn: gamesApi.getAll,
+    refetchInterval: 10000, // Poll every 10 seconds for mobile reliability
   });
 
   // Socket.IO real-time updates
@@ -31,12 +32,10 @@ export default function LiveScoresPage() {
     const socket = getSocket();
 
     const handleScoreUpdate = (data: any) => {
-      console.log("📡 Score update:", data);
       queryClient.invalidateQueries({ queryKey: ["games"] });
     };
 
     const handleGameEvent = (data: any) => {
-      console.log("📡 Game event:", data);
       queryClient.invalidateQueries({ queryKey: ["games"] });
     };
 
@@ -48,6 +47,16 @@ export default function LiveScoresPage() {
       socket.off("game-event", handleGameEvent);
     };
   }, [queryClient]);
+
+  // Join game rooms for live games to receive socket updates
+  useEffect(() => {
+    const liveGameIds = games.filter((g) => g.status === "live").map((g) => g.id);
+    liveGameIds.forEach((id) => joinGameRoom(id));
+
+    return () => {
+      liveGameIds.forEach((id) => leaveGameRoom(id));
+    };
+  }, [games]);
 
   const liveGames = games.filter((g) => g.status === "live");
   const todayGames = games.filter((g) => {
