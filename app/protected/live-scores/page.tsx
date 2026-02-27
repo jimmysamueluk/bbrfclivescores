@@ -72,8 +72,29 @@ export default function LiveScoresPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-burgundy"></div>
+      <div>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse" />
+        </div>
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-6">
+                <div className="flex justify-between items-center">
+                  <div className="flex-1 space-y-2">
+                    <div className="h-5 w-32 bg-gray-200 rounded animate-pulse" />
+                    <div className="h-10 w-16 bg-gray-100 rounded animate-pulse" />
+                  </div>
+                  <div className="h-6 w-8 bg-gray-200 rounded animate-pulse" />
+                  <div className="flex-1 space-y-2 flex flex-col items-end">
+                    <div className="h-5 w-32 bg-gray-200 rounded animate-pulse" />
+                    <div className="h-10 w-16 bg-gray-100 rounded animate-pulse" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }

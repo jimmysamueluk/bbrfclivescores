@@ -46,19 +46,6 @@ export default function LoginPage() {
     }
   };
 
-  const demoLogin = async (email: string, password: string) => {
-    try {
-      setLoading(true);
-      setError("");
-      const response = await authApi.login({ email, password });
-      setAuth(response.user, response.token);
-      router.push("/protected/live-scores");
-    } catch (err: any) {
-      setError(err.response?.data?.error || "Login failed");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-burgundy via-burgundy-light to-gold p-3 sm:p-4">
@@ -119,39 +106,11 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="mt-6 pt-6 border-t">
-              <p className="text-sm text-gray-600 mb-3">Demo Accounts:</p>
-              <div className="space-y-2.5">
-                <Button
-                  variant="outline"
-                  className="w-full min-h-[44px] text-sm"
-                  onClick={() =>
-                    demoLogin(
-                      "coach@bannockburnrugby.co.uk",
-                      "coach123"
-                    )
-                  }
-                  disabled={loading}
-                >
-                  Coach Login
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full min-h-[44px] text-sm"
-                  onClick={() =>
-                    demoLogin("jamie.smith@example.com", "player123")
-                  }
-                  disabled={loading}
-                >
-                  Player Login
-                </Button>
-              </div>
-            </div>
           </CardContent>
         </Card>
 
         <p className="text-center text-white/80 text-xs sm:text-sm mt-4 sm:mt-6 px-4">
-          Modern Next.js 15 • Real-time Updates • Mobile-First
+          Live Scores &bull; Real-time Updates
         </p>
       </div>
     </div>

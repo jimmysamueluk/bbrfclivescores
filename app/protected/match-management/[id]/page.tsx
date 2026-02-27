@@ -10,6 +10,8 @@ import { getSocket } from "@/lib/socket/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   ArrowLeft,
   Clock,
@@ -17,7 +19,11 @@ import {
   Target,
   Zap,
   Undo2,
-  Edit
+  Edit,
+  Play,
+  Pause,
+  StopCircle,
+  RotateCcw,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { formatDate } from "@/lib/utils";
@@ -28,6 +34,7 @@ export default function MatchManagementPage() {
   const gameId = parseInt(params.id as string);
   const user = useAuthStore((state) => state.user);
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
 
   const [selectedTeam, setSelectedTeam] = useState<"home" | "away">("home");
   const [selectedScoreType, setSelectedScoreType] = useState<"try" | "conversion" | "penalty" | "drop_goal" | null>(null);
@@ -36,11 +43,21 @@ export default function MatchManagementPage() {
   const [gameTime, setGameTime] = useState(0);
   const [loading, setLoading] = useState(false);
 
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    variant?: "danger" | "default";
+    onConfirm: () => void;
+  }>({ open: false, title: "", message: "", onConfirm: () => {} });
+
   // Fetch game data
   const { data: game, isLoading } = useQuery({
     queryKey: ["game", gameId],
     queryFn: () => gamesApi.getById(gameId),
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: 5000,
   });
 
   // Socket.IO real-time updates
@@ -82,7 +99,7 @@ export default function MatchManagementPage() {
 
   const handleSubmitScore = async () => {
     if (!game || !selectedScoreType) {
-      alert("Please select a score type first");
+      showToast("Please select a score type first", "error");
       return;
     }
 
@@ -96,17 +113,19 @@ export default function MatchManagementPage() {
         gameTime: gameTime || game.gameTime || 0,
       });
 
+      const teamName = selectedTeam === "home" ? game.homeTeamName : game.awayTeamName;
+      showToast(`${selectedScoreType.replace("_", " ").toUpperCase()} added for ${teamName}`, "success");
+
       // Clear form after scoring
       setPlayerName("");
       setGameTime(0);
       setSelectedScoreType(null);
       setSelectedPoints(0);
 
-      // Refresh game data
       queryClient.invalidateQueries({ queryKey: ["game", gameId] });
-    } catch (err) {
-      console.error("Failed to add score:", err);
-      alert("Failed to add score. Please try again.");
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.error || "Failed to add score. Please try again.";
+      showToast(errorMsg, "error");
     } finally {
       setLoading(false);
     }
@@ -122,88 +141,123 @@ export default function MatchManagementPage() {
         gameTime: gameTime || game.gameTime || 0,
       };
 
-      // Set currentHalf based on status
       if (status === "live") {
         updateData.currentHalf = game.status === "halftime" ? 2 : 1;
       }
 
-      console.log("Updating status:", updateData);
       await gamesApi.updateStatus(gameId, updateData);
       queryClient.invalidateQueries({ queryKey: ["game", gameId] });
+
+      const statusLabels: Record<string, string> = {
+        live: "Match is now LIVE",
+        halftime: "Half Time",
+        fulltime: "Full Time - Match Complete",
+        scheduled: "Match reset to Scheduled",
+      };
+      showToast(statusLabels[status] || `Status: ${status}`, "success");
     } catch (err: any) {
-      console.error("Failed to update status:", err);
-      const errorMsg = err?.response?.data?.error || err?.message || "Failed to update status. Please try again.";
-      alert(errorMsg);
+      const errorMsg = err?.response?.data?.error || err?.message || "Failed to update status.";
+      showToast(errorMsg, "error");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUndoLastScore = async () => {
+  const handleUndoLastScore = () => {
     if (scoreUpdates.length === 0) {
-      alert("No scores to undo");
+      showToast("No scores to undo", "info");
       return;
     }
 
     const lastScore = scoreUpdates[scoreUpdates.length - 1];
     if (!game) return;
-    const confirmed = window.confirm(
-      `Undo ${lastScore.scoreType.toUpperCase()} (${lastScore.points} pts) for ${
-        lastScore.team === "home" ? game.homeTeamName : game.awayTeamName
-      }?`
-    );
-    if (!confirmed) return;
 
-    try {
-      setLoading(true);
-      await apiClient.delete(`/livescores/${gameId}/score/${lastScore.id}`);
-      queryClient.invalidateQueries({ queryKey: ["game", gameId] });
-    } catch (err: any) {
-      console.error("Failed to undo score:", err);
-      const errorMsg = err?.response?.data?.error || err?.message || "Failed to undo score.";
-      alert(errorMsg);
-    } finally {
-      setLoading(false);
-    }
+    const teamName = lastScore.team === "home" ? game.homeTeamName : game.awayTeamName;
+    setConfirmDialog({
+      open: true,
+      title: "Undo Last Score",
+      message: `Remove ${lastScore.scoreType.replace("_", " ").toUpperCase()} (${lastScore.points} pts) for ${teamName}?`,
+      confirmLabel: "Undo",
+      variant: "danger",
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, open: false }));
+        try {
+          setLoading(true);
+          await apiClient.delete(`/livescores/${gameId}/score/${lastScore.id}`);
+          queryClient.invalidateQueries({ queryKey: ["game", gameId] });
+          showToast("Score removed", "success");
+        } catch (err: any) {
+          const errorMsg = err?.response?.data?.error || "Failed to undo score.";
+          showToast(errorMsg, "error");
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
   };
 
-  const handleEditScore = async (score: any) => {
-    const confirmed = window.confirm(
-      `Edit this ${score.scoreType.toUpperCase()}? The original score will be removed and you can re-enter the details.`
-    );
-    if (!confirmed) return;
+  const handleEditScore = (score: any) => {
+    setConfirmDialog({
+      open: true,
+      title: "Edit Score",
+      message: `Edit this ${score.scoreType.replace("_", " ").toUpperCase()}? The original will be removed so you can re-enter the details.`,
+      confirmLabel: "Edit",
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, open: false }));
+        try {
+          setLoading(true);
+          await apiClient.delete(`/livescores/${gameId}/score/${score.id}`);
+          setSelectedTeam(score.team);
+          setSelectedScoreType(score.scoreType);
+          setSelectedPoints(score.points);
+          setPlayerName(score.playerName || "");
+          setGameTime(score.gameTime || 0);
+          queryClient.invalidateQueries({ queryKey: ["game", gameId] });
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          showToast("Score removed - update the form and resubmit", "info");
+        } catch (err: any) {
+          const errorMsg = err?.response?.data?.error || "Failed to edit score.";
+          showToast(errorMsg, "error");
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  };
 
-    try {
-      setLoading(true);
-
-      // Delete the score
-      await apiClient.delete(`/livescores/${gameId}/score/${score.id}`);
-
-      // Populate form with score data
-      setSelectedTeam(score.team);
-      setSelectedScoreType(score.scoreType);
-      setSelectedPoints(score.points);
-      setPlayerName(score.playerName || "");
-      setGameTime(score.gameTime || 0);
-
-      // Refresh game data
-      queryClient.invalidateQueries({ queryKey: ["game", gameId] });
-
-      // Scroll to form
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
-      console.error("Failed to edit score:", err);
-      const errorMsg = err?.response?.data?.error || err?.message || "Failed to edit score.";
-      alert(errorMsg);
-    } finally {
-      setLoading(false);
-    }
+  const confirmStatusChange = (status: string, label: string) => {
+    setConfirmDialog({
+      open: true,
+      title: `Change to ${label}?`,
+      message: status === "fulltime"
+        ? "This will end the match. Are you sure?"
+        : `Change match status to ${label}?`,
+      confirmLabel: label,
+      variant: status === "fulltime" ? "danger" : "default",
+      onConfirm: () => {
+        setConfirmDialog((prev) => ({ ...prev, open: false }));
+        handleStatusChange(status);
+      },
+    });
   };
 
   if (isLoading || !game) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-burgundy"></div>
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <div className="h-11 w-24 bg-gray-200 rounded animate-pulse" />
+          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse" />
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <div className="h-40 bg-gray-100 rounded animate-pulse" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="h-60 bg-gray-100 rounded animate-pulse" />
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -214,7 +268,7 @@ export default function MatchManagementPage() {
     return (
       <Card>
         <CardContent className="text-center py-12">
-          <p className="text-red-600">You don't have permission to manage this match.</p>
+          <p className="text-red-600">You don&apos;t have permission to manage this match.</p>
         </CardContent>
       </Card>
     );
@@ -228,13 +282,43 @@ export default function MatchManagementPage() {
   const timelineEvents = [
     ...scoreUpdates.map((s: any) => ({ ...s, type: 'score', timestamp: s.timestamp || s.createdAt })),
     ...gameEvents.map((e: any) => ({ ...e, type: 'event', timestamp: e.timestamp || e.createdAt }))
-  ].sort((a, b) => {
-    // Sort by ID (higher ID = more recent) for newest at top
-    return (b.id || 0) - (a.id || 0);
-  });
+  ].sort((a, b) => (b.id || 0) - (a.id || 0));
+
+  // Determine available status transitions
+  const getStatusActions = () => {
+    switch (game.status) {
+      case "scheduled":
+        return [{ status: "live", label: "Kick Off", icon: Play, color: "bg-green-600 hover:bg-green-700" }];
+      case "live":
+        return [
+          { status: "halftime", label: "Half Time", icon: Pause, color: "bg-yellow-600 hover:bg-yellow-700" },
+          { status: "fulltime", label: "Full Time", icon: StopCircle, color: "bg-red-600 hover:bg-red-700" },
+        ];
+      case "halftime":
+        return [
+          { status: "live", label: "2nd Half", icon: Play, color: "bg-green-600 hover:bg-green-700" },
+          { status: "fulltime", label: "Full Time", icon: StopCircle, color: "bg-red-600 hover:bg-red-700" },
+        ];
+      case "fulltime":
+        return [{ status: "scheduled", label: "Reset Match", icon: RotateCcw, color: "bg-gray-600 hover:bg-gray-700" }];
+      default:
+        return [];
+    }
+  };
 
   return (
     <div className="space-y-6">
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
+      />
+
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button
@@ -279,206 +363,223 @@ export default function MatchManagementPage() {
 
           {/* Status Badge */}
           {game.status && (
-            <div className="text-center">
+            <div className="text-center mb-4">
               <span className={`inline-block px-4 py-2 rounded-full text-sm font-semibold ${
                 game.status === 'live' ? 'bg-red-100 text-red-800' :
                 game.status === 'halftime' ? 'bg-yellow-100 text-yellow-800' :
                 game.status === 'fulltime' ? 'bg-green-100 text-green-800' :
                 'bg-blue-100 text-blue-800'
               }`}>
-                {game.status.toUpperCase()}
+                {game.status === 'live' && game.currentHalf ? `LIVE - ${game.currentHalf === 1 ? '1ST' : '2ND'} HALF` : game.status.toUpperCase()}
               </span>
             </div>
           )}
+
+          {/* Match Status Controls */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            {getStatusActions().map((action) => (
+              <Button
+                key={action.status}
+                onClick={() => confirmStatusChange(action.status, action.label)}
+                disabled={loading}
+                className={`flex-1 min-h-[48px] text-white font-bold gap-2 ${action.color}`}
+              >
+                <action.icon className="h-5 w-5" />
+                {action.label}
+              </Button>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
-      {/* Score Management */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg sm:text-xl">Add Score</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Team Selection - Enhanced with scores and colors */}
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-center text-gray-700">
-              ⚡ Scoring for:
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={() => setSelectedTeam("home")}
-                className={`relative p-4 rounded-xl border-4 transition-all min-h-[100px] flex flex-col items-center justify-center gap-2 ${
-                  selectedTeam === "home"
-                    ? "border-burgundy bg-burgundy text-white scale-105 shadow-xl"
-                    : "border-gray-300 bg-white text-gray-700 hover:border-burgundy/50"
-                }`}
-              >
-                {selectedTeam === "home" && (
-                  <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full">
-                    SELECTED
+      {/* Score Management - only show when match is live or halftime */}
+      {(game.status === "live" || game.status === "halftime") && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg sm:text-xl">Add Score</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Team Selection */}
+            <div className="space-y-3">
+              <p className="text-sm font-semibold text-center text-gray-700">
+                Scoring for:
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setSelectedTeam("home")}
+                  className={`relative p-4 rounded-xl border-4 transition-all min-h-[100px] flex flex-col items-center justify-center gap-2 ${
+                    selectedTeam === "home"
+                      ? "border-burgundy bg-burgundy text-white scale-105 shadow-xl"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-burgundy/50"
+                  }`}
+                >
+                  {selectedTeam === "home" && (
+                    <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                      SELECTED
+                    </div>
+                  )}
+                  <div className={`text-center ${selectedTeam === "home" ? "text-white" : "text-burgundy"}`}>
+                    <p className="font-bold text-lg mb-1">{game.homeTeamName}</p>
+                    <p className="text-3xl font-black">{game.homeScore}</p>
+                    <p className="text-xs mt-1 opacity-80">points</p>
                   </div>
-                )}
-                <div className={`text-center ${selectedTeam === "home" ? "text-white" : "text-burgundy"}`}>
-                  <p className="font-bold text-lg mb-1">{game.homeTeamName}</p>
-                  <p className="text-3xl font-black">{game.homeScore}</p>
-                  <p className="text-xs mt-1 opacity-80">points</p>
-                </div>
-              </button>
+                </button>
 
-              <button
-                onClick={() => setSelectedTeam("away")}
-                className={`relative p-4 rounded-xl border-4 transition-all min-h-[100px] flex flex-col items-center justify-center gap-2 ${
-                  selectedTeam === "away"
-                    ? "border-gold bg-gold text-white scale-105 shadow-xl"
-                    : "border-gray-300 bg-white text-gray-700 hover:border-gold/50"
-                }`}
-              >
-                {selectedTeam === "away" && (
-                  <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full">
-                    SELECTED
+                <button
+                  onClick={() => setSelectedTeam("away")}
+                  className={`relative p-4 rounded-xl border-4 transition-all min-h-[100px] flex flex-col items-center justify-center gap-2 ${
+                    selectedTeam === "away"
+                      ? "border-gold bg-gold text-white scale-105 shadow-xl"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-gold/50"
+                  }`}
+                >
+                  {selectedTeam === "away" && (
+                    <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                      SELECTED
+                    </div>
+                  )}
+                  <div className={`text-center ${selectedTeam === "away" ? "text-white" : "text-gold-dark"}`}>
+                    <p className="font-bold text-lg mb-1">{game.awayTeamName}</p>
+                    <p className="text-3xl font-black">{game.awayScore}</p>
+                    <p className="text-xs mt-1 opacity-80">points</p>
                   </div>
-                )}
-                <div className={`text-center ${selectedTeam === "away" ? "text-white" : "text-gold-dark"}`}>
-                  <p className="font-bold text-lg mb-1">{game.awayTeamName}</p>
-                  <p className="text-3xl font-black">{game.awayScore}</p>
-                  <p className="text-xs mt-1 opacity-80">points</p>
-                </div>
-              </button>
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* Quick Score Buttons */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <Button
-              onClick={() => handleSelectScore("try", 5)}
-              disabled={loading}
-              variant="outline"
-              className={`h-24 flex-col gap-2 border-2 transition-all ${
-                selectedScoreType === "try"
-                  ? "border-burgundy bg-burgundy text-white scale-105 shadow-lg"
-                  : "border-burgundy hover:bg-burgundy hover:text-white"
-              }`}
-            >
-              <Trophy className="h-6 w-6" />
-              <div className="text-center">
-                <div className="text-2xl font-bold">5</div>
-                <div className="text-xs">Try</div>
-              </div>
-            </Button>
+            {/* Quick Score Buttons */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Button
+                onClick={() => handleSelectScore("try", 5)}
+                disabled={loading}
+                variant="outline"
+                className={`h-24 flex-col gap-2 border-2 transition-all ${
+                  selectedScoreType === "try"
+                    ? "border-burgundy bg-burgundy text-white scale-105 shadow-lg"
+                    : "border-burgundy hover:bg-burgundy hover:text-white"
+                }`}
+              >
+                <Trophy className="h-6 w-6" />
+                <div className="text-center">
+                  <div className="text-2xl font-bold">5</div>
+                  <div className="text-xs">Try</div>
+                </div>
+              </Button>
 
-            <Button
-              onClick={() => handleSelectScore("conversion", 2)}
-              disabled={loading}
-              variant="outline"
-              className={`h-24 flex-col gap-2 border-2 transition-all ${
-                selectedScoreType === "conversion"
-                  ? "border-gold bg-gold text-white scale-105 shadow-lg"
-                  : "border-gold hover:bg-gold hover:text-white"
-              }`}
-            >
-              <Target className="h-6 w-6" />
-              <div className="text-center">
-                <div className="text-2xl font-bold">2</div>
-                <div className="text-xs">Conversion</div>
-              </div>
-            </Button>
+              <Button
+                onClick={() => handleSelectScore("conversion", 2)}
+                disabled={loading}
+                variant="outline"
+                className={`h-24 flex-col gap-2 border-2 transition-all ${
+                  selectedScoreType === "conversion"
+                    ? "border-gold bg-gold text-white scale-105 shadow-lg"
+                    : "border-gold hover:bg-gold hover:text-white"
+                }`}
+              >
+                <Target className="h-6 w-6" />
+                <div className="text-center">
+                  <div className="text-2xl font-bold">2</div>
+                  <div className="text-xs">Conversion</div>
+                </div>
+              </Button>
 
-            <Button
-              onClick={() => handleSelectScore("penalty", 3)}
-              disabled={loading}
-              variant="outline"
-              className={`h-24 flex-col gap-2 border-2 transition-all ${
-                selectedScoreType === "penalty"
-                  ? "border-burgundy-light bg-burgundy-light text-white scale-105 shadow-lg"
-                  : "border-burgundy-light hover:bg-burgundy-light hover:text-white"
-              }`}
-            >
-              <Zap className="h-6 w-6" />
-              <div className="text-center">
-                <div className="text-2xl font-bold">3</div>
-                <div className="text-xs">Penalty</div>
-              </div>
-            </Button>
+              <Button
+                onClick={() => handleSelectScore("penalty", 3)}
+                disabled={loading}
+                variant="outline"
+                className={`h-24 flex-col gap-2 border-2 transition-all ${
+                  selectedScoreType === "penalty"
+                    ? "border-burgundy-light bg-burgundy-light text-white scale-105 shadow-lg"
+                    : "border-burgundy-light hover:bg-burgundy-light hover:text-white"
+                }`}
+              >
+                <Zap className="h-6 w-6" />
+                <div className="text-center">
+                  <div className="text-2xl font-bold">3</div>
+                  <div className="text-xs">Penalty</div>
+                </div>
+              </Button>
 
-            <Button
-              onClick={() => handleSelectScore("drop_goal", 3)}
-              disabled={loading}
-              variant="outline"
-              className={`h-24 flex-col gap-2 border-2 transition-all ${
-                selectedScoreType === "drop_goal"
-                  ? "border-gold-dark bg-gold-dark text-white scale-105 shadow-lg"
-                  : "border-gold-dark hover:bg-gold-dark hover:text-white"
-              }`}
-            >
-              <Trophy className="h-6 w-6" />
-              <div className="text-center">
-                <div className="text-2xl font-bold">3</div>
-                <div className="text-xs">Drop Goal</div>
-              </div>
-            </Button>
-          </div>
+              <Button
+                onClick={() => handleSelectScore("drop_goal", 3)}
+                disabled={loading}
+                variant="outline"
+                className={`h-24 flex-col gap-2 border-2 transition-all ${
+                  selectedScoreType === "drop_goal"
+                    ? "border-gold-dark bg-gold-dark text-white scale-105 shadow-lg"
+                    : "border-gold-dark hover:bg-gold-dark hover:text-white"
+                }`}
+              >
+                <Trophy className="h-6 w-6" />
+                <div className="text-center">
+                  <div className="text-2xl font-bold">3</div>
+                  <div className="text-xs">Drop Goal</div>
+                </div>
+              </Button>
+            </div>
 
-          {/* Player Name (Optional) */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">
-              Player (optional)
-            </label>
-            <Input
-              type="text"
-              placeholder="Enter player name"
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              className="h-12 text-base"
-            />
-          </div>
-
-          {/* Score Time */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">
-              Time (minutes)
-            </label>
-            <div className="flex items-center gap-2">
+            {/* Player Name (Optional) */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                Player (optional)
+              </label>
               <Input
-                type="number"
-                placeholder="0"
-                value={gameTime}
-                onChange={(e) => setGameTime(parseInt(e.target.value) || 0)}
-                className="h-12 text-base text-center"
-                min="0"
-                max="120"
+                type="text"
+                placeholder="Enter player name"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="h-12 text-base"
               />
-              <Clock className="h-5 w-5 text-gray-400 flex-shrink-0" />
             </div>
-          </div>
 
-          {/* Submit Score Button */}
-          <Button
-            onClick={handleSubmitScore}
-            disabled={loading || !selectedScoreType}
-            className="w-full h-14 text-lg font-bold gap-2"
-            size="lg"
-          >
-            {loading ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                Adding Score...
-              </>
-            ) : (
-              <>
-                <Trophy className="h-5 w-5" />
-                Submit Score
-              </>
-            )}
-          </Button>
-        </CardContent>
-      </Card>
+            {/* Score Time */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                Time (minutes)
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={gameTime}
+                  onChange={(e) => setGameTime(parseInt(e.target.value) || 0)}
+                  className="h-12 text-base text-center"
+                  min="0"
+                  max="120"
+                />
+                <Clock className="h-5 w-5 text-gray-400 flex-shrink-0" />
+              </div>
+            </div>
+
+            {/* Submit Score Button */}
+            <Button
+              onClick={handleSubmitScore}
+              disabled={loading || !selectedScoreType}
+              className="w-full h-14 text-lg font-bold gap-2"
+              size="lg"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  Adding Score...
+                </>
+              ) : (
+                <>
+                  <Trophy className="h-5 w-5" />
+                  Submit Score
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Score Timeline */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg sm:text-xl">Match Timeline</CardTitle>
-            {scoreUpdates.length > 0 && (
+            {scoreUpdates.length > 0 && (game.status === "live" || game.status === "halftime") && (
               <Button
                 onClick={handleUndoLastScore}
                 disabled={loading}
@@ -487,7 +588,7 @@ export default function MatchManagementPage() {
                 className="gap-2 border-red-500 text-red-600 hover:bg-red-500 hover:text-white min-h-[44px]"
               >
                 <Undo2 className="h-4 w-4" />
-                Undo Last Score
+                Undo Last
               </Button>
             )}
           </div>
@@ -516,7 +617,7 @@ export default function MatchManagementPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-sm bg-gray-900 text-white px-2 py-0.5 rounded">
-                            {event.gameTime}'
+                            {event.gameTime}&apos;
                           </span>
                           {event.type === 'score' && (
                             <span className="font-semibold text-sm">
@@ -528,7 +629,7 @@ export default function MatchManagementPage() {
                         {event.type === 'score' ? (
                           <div className="space-y-1">
                             <p className="font-bold text-lg">
-                              {event.scoreType.toUpperCase()} - {event.points} points
+                              {event.scoreType.replace("_", " ").toUpperCase()} - {event.points} points
                             </p>
                             {event.playerName && (
                               <p className="text-sm text-gray-600">
@@ -556,7 +657,7 @@ export default function MatchManagementPage() {
                         <div className="text-xs text-gray-500 whitespace-nowrap">
                           {new Date(event.timestamp).toLocaleTimeString()}
                         </div>
-                        {event.type === 'score' && (
+                        {event.type === 'score' && (game.status === "live" || game.status === "halftime") && (
                           <Button
                             onClick={() => handleEditScore(event)}
                             disabled={loading}
